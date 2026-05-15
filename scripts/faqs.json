@@ -1,0 +1,282 @@
+[
+  {
+    "id": "btr-renewal",
+    "category": "business",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/business/business-tax-receipt",
+    "en": {
+      "question": "How do I renew my Business Tax Receipt (BTR)?",
+      "answer": "Doral BTRs run on the city's fiscal year and need renewal annually. You can renew online through the Self-Service Portal or in person at City Hall. Late renewals are subject to penalties, so renew before the deadline shown on your notice."
+    },
+    "es": {
+      "question": "¿Cómo renuevo mi Recibo de Impuesto de Negocios (BTR)?",
+      "answer": "Los BTR de Doral siguen el año fiscal de la ciudad y se renuevan anualmente. Puede renovar en línea por el Portal de Autoservicio o en persona en City Hall. Las renovaciones tardías tienen recargos, así que renueve antes de la fecha límite indicada en su aviso."
+    }
+  },
+  {
+    "id": "building-permit",
+    "category": "building",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/residents/permits",
+    "en": {
+      "question": "Do I need a permit for home improvements?",
+      "answer": "Most structural, electrical, plumbing, and roofing work in Doral requires a permit from the Building Department. Cosmetic changes like paint typically do not. When in doubt, contact the Building Department before starting the project."
+    },
+    "es": {
+      "question": "¿Necesito un permiso para mejoras en mi casa?",
+      "answer": "La mayoría de trabajos estructurales, eléctricos, de plomería y de techo en Doral requieren un permiso del Departamento de Construcción. Cambios cosméticos como pintura usualmente no. Si tiene dudas, contacte al Departamento de Construcción antes de empezar."
+    }
+  },
+  {
+    "id": "report-pothole",
+    "category": "311",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/services/info-doral",
+    "en": {
+      "question": "How do I report a pothole or street issue?",
+      "answer": "Use the Info Doral portal or app to submit a service request with the location and a photo. You will get a ticket number for tracking. Emergencies should still be reported to 911."
+    },
+    "es": {
+      "question": "¿Cómo reporto un bache o problema en la calle?",
+      "answer": "Use el portal o la app Info Doral para enviar una solicitud con la ubicación y una foto. Recibirá un número de ticket para dar seguimiento. Las emergencias deben reportarse al 911."
+    }
+  },
+  {
+    "id": "park-rental",
+    "category": "parks",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/residents/parks/rentals",
+    "en": {
+      "question": "How do I rent a park pavilion or field?",
+      "answer": "Pavilions, fields, and event spaces in Doral parks can be reserved through the Parks & Recreation department. Reservations require an application, fee, and lead time. Check availability online before submitting."
+    },
+    "es": {
+      "question": "¿Cómo alquilo un pabellón o cancha en un parque?",
+      "answer": "Los pabellones, canchas y espacios para eventos en los parques de Doral se pueden reservar a través del departamento de Parques y Recreación. Las reservas requieren una solicitud, una tarifa y tiempo de anticipación. Verifique la disponibilidad en línea antes de enviar."
+    }
+  },
+  {
+    "id": "trolley",
+    "category": "transportation",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/services/trolley",
+    "en": {
+      "question": "Is the Doral Trolley free? What are the routes?",
+      "answer": "Yes, the Doral Trolley is free to ride and runs scheduled routes connecting key neighborhoods, parks, and commercial areas. Check the published route maps and timetables on the city website or use the live tracking tool."
+    },
+    "es": {
+      "question": "¿Es gratis el Doral Trolley? ¿Cuáles son las rutas?",
+      "answer": "Sí, el Doral Trolley es gratis y opera rutas programadas que conectan vecindarios, parques y zonas comerciales. Consulte los mapas y horarios en el sitio web de la ciudad o use la herramienta de rastreo en vivo."
+    }
+  },
+  {
+    "id": "hurricane-prep",
+    "category": "emergency",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/residents/emergency-management",
+    "en": {
+      "question": "How do I prepare for a hurricane in Doral?",
+      "answer": "Build an emergency kit with water, non-perishable food, medications, and important documents. Know your evacuation zone, sign up for emergency alerts, and clear loose yard debris before a storm. The city posts shelter and sandbag distribution updates as needed."
+    },
+    "es": {
+      "question": "¿Cómo me preparo para un huracán en Doral?",
+      "answer": "Arme un kit de emergencia con agua, alimentos no perecederos, medicamentos y documentos importantes. Conozca su zona de evacuación, inscríbase para recibir alertas de emergencia y retire escombros del patio antes de la tormenta. La ciudad publica actualizaciones sobre refugios y distribución de arena cuando es necesario."
+    }
+  },
+  {
+    "id": "code-enforcement",
+    "category": "code",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/services/code-compliance",
+    "en": {
+      "question": "How do I file a code enforcement complaint?",
+      "answer": "Submit complaints about overgrown lots, illegal signs, unsafe structures, or other code violations through Info Doral. Include the address and photos. An officer will investigate and follow up with the property owner if needed."
+    },
+    "es": {
+      "question": "¿Cómo presento una queja de cumplimiento de código?",
+      "answer": "Envíe quejas sobre lotes descuidados, letreros ilegales, estructuras inseguras u otras violaciones a través de Info Doral. Incluya la dirección y fotos. Un oficial investigará y se comunicará con el propietario si es necesario."
+    }
+  },
+  {
+    "id": "garbage-recycling",
+    "category": "services",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/services/solid-waste",
+    "en": {
+      "question": "When is my trash and recycling pickup day?",
+      "answer": "Pickup days depend on your address. Check the city's collection calendar or call the Public Works office. Bulk waste and yard waste have separate schedules from regular trash and recycling."
+    },
+    "es": {
+      "question": "¿Cuándo es el día de recolección de basura y reciclaje?",
+      "answer": "El día de recolección depende de su dirección. Consulte el calendario de recolección de la ciudad o llame a la oficina de Obras Públicas. Los desechos voluminosos y de jardín tienen horarios separados de la basura y el reciclaje regulares."
+    }
+  },
+  {
+    "id": "police-non-emergency",
+    "category": "police",
+    "domain": "doralpd.com",
+    "source_url": "https://www.doralpd.com/contact",
+    "en": {
+      "question": "How do I reach Doral Police for a non-emergency?",
+      "answer": "Call the Doral Police non-emergency line for issues that don't require an immediate response, such as a noise complaint or to file a routine report. Always dial 911 for emergencies or crimes in progress."
+    },
+    "es": {
+      "question": "¿Cómo contacto a la Policía de Doral para asuntos que no son emergencias?",
+      "answer": "Llame a la línea de no emergencia de la Policía de Doral para asuntos que no requieren respuesta inmediata, como una queja de ruido o un reporte rutinario. Para emergencias o delitos en curso, marque siempre el 911."
+    }
+  },
+  {
+    "id": "crime-mapping",
+    "category": "police",
+    "domain": "doralpd.com",
+    "source_url": "https://www.doralpd.com/crime-mapping",
+    "en": {
+      "question": "Where can I see crime statistics or a crime map for Doral?",
+      "answer": "The Doral Police Department publishes an interactive crime map showing incident locations and types over time. Visit the Crime Mapping page on doralpd.com to filter by area and date range."
+    },
+    "es": {
+      "question": "¿Dónde puedo ver estadísticas o un mapa de crimen de Doral?",
+      "answer": "El Departamento de Policía de Doral publica un mapa interactivo de crimen con ubicaciones y tipos de incidentes. Visite la página de Mapa de Crimen en doralpd.com para filtrar por área y fecha."
+    }
+  },
+  {
+    "id": "citizens-police-academy",
+    "category": "police",
+    "domain": "doralpd.com",
+    "source_url": "https://www.doralpd.com/citizens-police-academy",
+    "en": {
+      "question": "What is the Citizens Police Academy?",
+      "answer": "The Citizens Police Academy is a free program that gives Doral residents an inside look at police operations through weekly sessions over several weeks. Topics include patrol, investigations, and community policing. Applications open periodically through the Doral PD."
+    },
+    "es": {
+      "question": "¿Qué es la Academia de Policía para Ciudadanos?",
+      "answer": "La Academia de Policía para Ciudadanos es un programa gratuito que ofrece a los residentes de Doral una mirada al trabajo policial a través de sesiones semanales por varias semanas. Cubre patrullaje, investigaciones y policía comunitaria. Las inscripciones abren periódicamente a través de Doral PD."
+    }
+  },
+  {
+    "id": "special-needs-registry",
+    "category": "police",
+    "domain": "doralpd.com",
+    "source_url": "https://www.doralpd.com/special-needs-registry",
+    "en": {
+      "question": "How does the Special Needs Registry work?",
+      "answer": "Residents with medical conditions or disabilities can register with the Doral Police so officers and first responders have important information ahead of any emergency response. Enrollment is voluntary, confidential, and free."
+    },
+    "es": {
+      "question": "¿Cómo funciona el Registro de Necesidades Especiales?",
+      "answer": "Residentes con condiciones médicas o discapacidades pueden registrarse con la Policía de Doral para que oficiales y socorristas tengan información clave antes de cualquier respuesta de emergencia. La inscripción es voluntaria, confidencial y gratuita."
+    }
+  },
+  {
+    "id": "city-hall-hours",
+    "category": "info",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/contact",
+    "en": {
+      "question": "What are the City Hall hours and address?",
+      "answer": "Doral Government Center is located at 8401 NW 53rd Terrace, Doral, FL 33166. Regular business hours are Monday through Friday during the day. Holiday closures are announced on the city website."
+    },
+    "es": {
+      "question": "¿Cuál es el horario y la dirección de City Hall?",
+      "answer": "El Centro de Gobierno de Doral está en 8401 NW 53rd Terrace, Doral, FL 33166. El horario regular es de lunes a viernes durante el día. Los cierres por días feriados se anuncian en el sitio web de la ciudad."
+    }
+  },
+  {
+    "id": "council-meetings",
+    "category": "government",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/government/meetings",
+    "en": {
+      "question": "When are City Council meetings held?",
+      "answer": "City Council meetings are typically held at City Hall on scheduled dates and are open to the public. Agendas, minutes, and live or recorded video are available on the city website."
+    },
+    "es": {
+      "question": "¿Cuándo se realizan las reuniones del Concejo Municipal?",
+      "answer": "Las reuniones del Concejo Municipal generalmente se realizan en City Hall en fechas programadas y están abiertas al público. Las agendas, actas y video en vivo o grabado están disponibles en el sitio web de la ciudad."
+    }
+  },
+  {
+    "id": "jobs",
+    "category": "employment",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/government/employment",
+    "en": {
+      "question": "How do I apply for a city job?",
+      "answer": "Open positions are posted on the city's employment page with job descriptions and application instructions. Most applications are submitted online; some roles may require additional steps like a written exam or interview."
+    },
+    "es": {
+      "question": "¿Cómo solicito un empleo en la ciudad?",
+      "answer": "Las vacantes se publican en la página de empleos de la ciudad con descripciones e instrucciones para postular. La mayoría de las solicitudes son en línea; algunos puestos pueden requerir pasos adicionales como un examen escrito o entrevista."
+    }
+  },
+  {
+    "id": "public-records",
+    "category": "government",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/government/public-records",
+    "en": {
+      "question": "How do I request public records?",
+      "answer": "Florida law makes most city records available to the public on request. Submit a public records request through the City Clerk's office, describing what you want as specifically as possible. Some records may carry a copying or research fee."
+    },
+    "es": {
+      "question": "¿Cómo solicito registros públicos?",
+      "answer": "La ley de Florida hace que la mayoría de los registros municipales estén disponibles al público a solicitud. Envíe su solicitud a través de la oficina del Secretario Municipal, describiendo lo que busca con la mayor precisión posible. Algunos registros pueden tener costos de copia o investigación."
+    }
+  },
+  {
+    "id": "doral-cast-connect",
+    "category": "engagement",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/government/doral-cast-connect",
+    "en": {
+      "question": "What is Doral Cast and Connect?",
+      "answer": "Doral Cast and Connect is the city's program for livestreamed and recorded public meetings and events. Residents can watch council meetings and community programming online without going to City Hall in person."
+    },
+    "es": {
+      "question": "¿Qué es Doral Cast and Connect?",
+      "answer": "Doral Cast and Connect es el programa de la ciudad para transmitir en vivo y grabar reuniones y eventos públicos. Los residentes pueden ver reuniones del concejo y programación comunitaria en línea sin tener que ir a City Hall en persona."
+    }
+  },
+  {
+    "id": "elections",
+    "category": "government",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/government/elections",
+    "en": {
+      "question": "When are Doral municipal elections held?",
+      "answer": "Doral holds municipal elections on a regular cycle for the offices of Mayor and City Council. Voter registration is handled by the Miami-Dade Elections Department. Check the city's elections page for current dates and ballot information."
+    },
+    "es": {
+      "question": "¿Cuándo se celebran las elecciones municipales de Doral?",
+      "answer": "Doral celebra elecciones municipales en un ciclo regular para los cargos de Alcalde y Concejo Municipal. El registro de votantes se gestiona a través del Departamento de Elecciones de Miami-Dade. Consulte la página de elecciones de la ciudad para fechas y información de boletas actuales."
+    }
+  },
+  {
+    "id": "mayor-office",
+    "category": "government",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/government/mayor",
+    "en": {
+      "question": "How do I contact the Mayor's office?",
+      "answer": "You can reach the Mayor's office at the Doral Government Center by phone or email. Constituent requests are handled by the Mayor's staff, who route them to the right department when needed."
+    },
+    "es": {
+      "question": "¿Cómo contacto la oficina del Alcalde?",
+      "answer": "Puede comunicarse con la oficina del Alcalde en el Centro de Gobierno de Doral por teléfono o correo electrónico. Las solicitudes de los residentes son atendidas por el equipo del Alcalde, que las dirige al departamento correcto cuando es necesario."
+    }
+  },
+  {
+    "id": "water-billing",
+    "category": "services",
+    "domain": "cityofdoral.com",
+    "source_url": "https://www.cityofdoral.com/residents/utilities",
+    "en": {
+      "question": "Who do I pay my water bill to?",
+      "answer": "Water service in Doral is provided by the Miami-Dade Water and Sewer Department, not the City of Doral. Billing, leaks, and service requests should be directed to Miami-Dade directly. The city can help direct you if you're unsure where to start."
+    },
+    "es": {
+      "question": "¿A quién le pago la factura del agua?",
+      "answer": "El servicio de agua en Doral lo proporciona el Departamento de Agua y Alcantarillado de Miami-Dade, no la Ciudad de Doral. La facturación, fugas y solicitudes de servicio deben dirigirse directamente a Miami-Dade. La ciudad puede orientarlo si no sabe dónde empezar."
+    }
+  }
+]

@@ -3,10 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+type Citation = {
+  title: string;
+  domain: string;
+  source_url: string;
+  similarity: number;
+};
+
 type Message = {
   role: "user" | "assistant";
   content: string;
   llm?: "gemini" | "groq";
+  citations?: Citation[];
 };
 
 const WELCOME: Record<"en" | "es", string> = {
@@ -47,7 +55,12 @@ export default function ChatWidget() {
       setConversationId(data.conversationId);
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: data.reply, llm: data.llm },
+        {
+          role: "assistant",
+          content: data.reply,
+          llm: data.llm,
+          citations: data.citations,
+        },
       ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -115,6 +128,25 @@ export default function ChatWidget() {
                   }
                 >
                   <div className="whitespace-pre-wrap">{m.content}</div>
+                  {m.role === "assistant" && m.citations && m.citations.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {m.citations.map((c) => (
+                        <a
+                          key={c.source_url}
+                          href={c.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={c.title}
+                          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-doral-navy/5 border border-doral-navy/20 text-doral-navy hover:bg-doral-navy hover:text-white transition"
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${c.domain === "doralpd.com" ? "bg-red-600" : "bg-doral-gold"}`}
+                          />
+                          {c.domain}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   {m.role === "assistant" && m.llm && (
                     <div className="mt-2 inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-doral-gold/20 text-doral-navy font-semibold">
                       {m.llm}

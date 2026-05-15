@@ -8,18 +8,37 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const SYSTEM_PROMPT = `You are the official AI assistant for the City of Doral, Florida.
+const SYSTEM_PROMPT_BASE = `You are the official AI assistant for the City of Doral, Florida.
 You help residents with city services: permits, Business Tax Receipts (BTR), parks, events, 311 reports, hurricane preparedness, code enforcement, and Doral Police Department services.
 Reply in the language of the user's most recent message (English or Spanish).
 Be concise (2–4 sentences), warm, and accurate.
-If you don't know, say so and suggest calling 311 or visiting cityofdoral.com.`;
+When the CONTEXT below contains relevant info, base your answer on it and cite the source domain inline.
+If neither the context nor general knowledge has the answer, say so and suggest calling 311 or visiting cityofdoral.com.`;
 
 type Provider = "gemini" | "groq";
+type Hit = {
+  kind: string;
+  title: string;
+  content: string;
+  similarity: number;
+  domain: string;
+  source_url: string;
+};
+
+function buildContextBlock(hits: Hit[]): string {
+  if (!hits.length) return "";
+  const lines = hits.map(
+    (h, i) =>
+      `[${i + 1}] (${h.domain}) ${h.title}\n${h.content}\nURL: ${h.source_url}`,
+  );
+  return `\n\nCONTEXT (relevant excerpts from official Doral sources):\n${lines.join("\n\n")}\n`;
+}
 
 async function callGemini(
   apiKey: string,
   history: Array<{ role: string; content: string }>,
   userMessage: string,
+  systemPrompt: string,
 ): Promise<string> {
   const contents = [
     ...history.map((m) => ({
@@ -28,7 +47,6 @@ async function callGemini(
     })),
     { role: "user", parts: [{ text: userMessage }] },
   ];
-
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
@@ -36,12 +54,11 @@ async function callGemini(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents,
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        systemInstruction: { parts: [{ text: systemPrompt }] },
         generationConfig: { temperature: 0.4, maxOutputTokens: 400 },
       }),
     },
   );
-
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Gemini ${res.status}: ${err}`);
@@ -56,9 +73,10 @@ async function callGroq(
   apiKey: string,
   history: Array<{ role: string; content: string }>,
   userMessage: string,
+  systemPrompt: string,
 ): Promise<string> {
   const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     ...history.map((m) => ({ role: m.role, content: m.content })),
     { role: "user", content: userMessage },
   ];
@@ -128,6 +146,33 @@ Deno.serve(async (req) => {
     });
     if (userInsErr) throw new Error(`db user insert: ${userInsErr.message}`);
 
+    // ---- RAG retrieval via match_content RPC (FTS) ----
+    const filterLang = lang === "es" ? "es" : "en";
+    let hits: Hit[] = [];
+    try {
+      const { data: matchData, error: matchErr } = await supabase.rpc(
+        "match_content",
+        { query_text: message, match_count: 5, filter_lang: filterLang },
+      );
+      if (matchErr) throw matchErr;
+      hits = (matchData ?? []) as Hit[];
+
+      // If nothing matched in the user's language, try the other language as a fallback.
+      if (hits.length === 0) {
+        const otherLang = filterLang === "en" ? "es" : "en";
+        const { data: fallback } = await supabase.rpc("match_content", {
+          query_text: message,
+          match_count: 5,
+          filter_lang: otherLang,
+        });
+        hits = (fallback ?? []) as Hit[];
+      }
+    } catch (e) {
+      console.error("retrieval error:", e);
+    }
+
+    const systemPrompt = SYSTEM_PROMPT_BASE + buildContextBlock(hits);
+
     const groqKey = Deno.env.get("GROQ_API_KEY");
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiKey && !groqKey) {
@@ -137,17 +182,16 @@ Deno.serve(async (req) => {
     let reply = "";
     let provider: Provider | "" = "";
     let lastErr = "";
-
     const tryOrder: Provider[] = groqKey ? ["groq", "gemini"] : ["gemini"];
     for (const p of tryOrder) {
       try {
         if (p === "groq" && groqKey) {
-          reply = await callGroq(groqKey, priorMessages ?? [], message);
+          reply = await callGroq(groqKey, priorMessages ?? [], message, systemPrompt);
           provider = "groq";
           break;
         }
         if (p === "gemini" && geminiKey) {
-          reply = await callGemini(geminiKey, priorMessages ?? [], message);
+          reply = await callGemini(geminiKey, priorMessages ?? [], message, systemPrompt);
           provider = "gemini";
           break;
         }
@@ -156,7 +200,6 @@ Deno.serve(async (req) => {
         continue;
       }
     }
-
     if (!provider) {
       throw new Error(`All LLM providers failed. Last error: ${lastErr}`);
     }
@@ -169,8 +212,23 @@ Deno.serve(async (req) => {
     });
     if (asstInsErr) throw new Error(`db assistant insert: ${asstInsErr.message}`);
 
+    // De-dup citations by source_url
+    const citations = Array.from(
+      new Map(
+        hits.map((h) => [
+          h.source_url,
+          { title: h.title, domain: h.domain, source_url: h.source_url, similarity: h.similarity },
+        ]),
+      ).values(),
+    );
+
     return new Response(
-      JSON.stringify({ reply, llm: provider, conversationId: convId }),
+      JSON.stringify({
+        reply,
+        llm: provider,
+        conversationId: convId,
+        citations,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {

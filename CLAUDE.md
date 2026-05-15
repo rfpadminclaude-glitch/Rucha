@@ -35,21 +35,27 @@ This is a **demo-driven POC for an RFP bid** to the City of Doral, FL — not a 
 2. **Gemini 2.5 Flash** is the current default and fallback. Note: `gemini-2.0-flash` returned quota=0 on this API key, so we use `gemini-2.5-flash` which has free-tier availability.
 3. Embeddings always use **OpenAI `text-embedding-3`** — do not switch providers mid-corpus without a re-embed plan, since vectors are not cross-compatible.
 
-## Current State (Phase 1 complete)
+## Current State (Phase 2 complete)
 
-**Built:**
-- DB tables: `conversations` (id, user_lang, created_at), `messages` (id, conversation_id, role, content, llm_provider, created_at). RLS open to anon for POC.
-- Edge Functions deployed: `hello` (Phase 0 smoke test), `chat` (persists turns + calls LLM with failover order Groq → Gemini, currently Gemini only since Groq key is missing).
-- Homepage at `/` is a layout-faithful clone of cityofdoral.com — utility bar, navy header with real logo, primary nav, hero with real city photo, Top Services, I Want To…, Events, News, Elected Officials (real names + photos), By The Numbers, Footer.
-- `ChatWidget` (src/components/ChatWidget.tsx) — floating button bottom-right, EN/ES toggle, calls the `chat` Edge Function, shows the `gemini` / `groq` provider badge on each assistant message, keeps `conversationId` in state.
-- Real branding assets in `public/doral/`: `logo.png`, `hero.jpg`, `favicon-32.png`, `apple-touch-icon.png`, `officials/{mayor,porras,cabral,pineyro,reinoso}.jpg`.
+**Built (cumulative):**
+- DB tables: `conversations`, `messages` (Phase 1); `faqs`, `site_content` with nullable `embedding vector(1536)` and generated `tsv tsvector` (Phase 2). RLS open to anon for POC.
+- `match_content(query_text, match_count, filter_lang)` RPC: Postgres full-text search via `websearch_to_tsquery('simple', ...)` + `ts_rank_cd`, unioned across `faqs` and `site_content`, language-filtered.
+- 40 seeded FAQ rows (20 topics × EN/ES) covering BTR, permits, 311, parks, trolley, hurricane, code, garbage, police non-emergency, crime mapping, Citizens Police Academy, Special Needs Registry, City Hall, council, jobs, public records, Doral Cast and Connect, elections, mayor, water billing.
+- Edge Functions deployed: `hello` (smoke), `chat` (retrieves top-5 hits via `match_content`, injects as CONTEXT into the system prompt, returns `citations[]` alongside the reply; Groq → Gemini failover, currently Gemini only).
+- Homepage clone of cityofdoral.com at `/` — utility bar, header w/ real logo, primary nav, hero w/ real city photo, Top Services, I Want To…, Events, News, Elected Officials (real names + photos), By The Numbers, Footer.
+- `ChatWidget` (bottom-right): EN/ES toggle, LLM provider badge, **citation chips** with a colored dot per domain (gold = cityofdoral.com, red = doralpd.com) that open the source URL in a new tab.
+- Seed pipeline: `scripts/faqs.json` + `scripts/seed-faqs.mjs` (no embeddings — FTS-only). Invoked via `npm run seed:faqs`.
+- Real branding assets in `public/doral/`.
+
+**Why FTS instead of pgvector now:** the user's OpenAI key is `insufficient_quota`, so we can't generate embeddings. FTS is sufficient for the demo's small corpus. Vector columns are kept nullable so we can re-embed and switch to vector search in one migration when OpenAI billing is enabled (or by swapping to Gemini embeddings).
 
 **Known caveats:**
-- News + events cards use real headlines but no images (kept simple; can revisit).
-- Officials section has 5 seats; verify against current council before demo.
-- `supabase/functions/` is excluded from Next.js TS build (Deno runtime, separate types).
+- FTS uses `simple` config (no stemming) — exact-word matching across languages. Service-name queries work well; pure paraphrase queries less so.
+- News + events cards have real headlines but no images.
+- Council seats: verify current officials before demo.
+- `supabase/functions/` is excluded from Next.js TS build (Deno runtime).
 
-**Next — Phase 2 (RAG):** seed `site_content` + `faqs` with pgvector, write `match_content` RPC, update `chat` function to embed query → retrieve → inject as context, show citation chips per `domain` (cityofdoral.com vs doralpd.com).
+**Next — Phase 3 (Polished chat widget):** quick-reply chips, streaming responses (Gemini supports `streamGenerateContent`), star rating after N exchanges, framer-motion animations, full keyboard nav + ARIA.
 
 ## Conventions
 
@@ -60,9 +66,8 @@ This is a **demo-driven POC for an RFP bid** to the City of Doral, FL — not a 
 ## Commands
 
 ```bash
-npm run dev      # local dev
-npm run build    # production build
-npm run lint     # lint
+npm run dev          # local dev
+npm run build        # production build
+npm run lint         # lint
+npm run seed:faqs    # repopulate the faqs table from scripts/faqs.json
 ```
-
-(Update as scripts are added.)
