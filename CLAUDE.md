@@ -6,6 +6,15 @@ Guidance for Claude Code working in this repo.
 
 Doral is a Next.js 14 (App Router) app deployed to Vercel. It clones the look of cityofdoral.com and adds an AI chat widget, an admin dashboard, and an analytics page. The backend is Supabase; LLMs are Groq (primary) and Gemini (fallback), with OpenAI for embeddings.
 
+This is a **demo-driven POC for an RFP bid** to the City of Doral, FL — not a production build. Optimize for demo-day reliability and visible polish. The 30-minute live demo to the evaluation committee is the deliverable.
+
+## RFP-Driven Requirements (non-negotiable)
+
+- **Bilingual EN/ES parity** — Spanish is a scoring factor, not nice-to-have. All seed FAQ content in both languages. UI + chat must honor a user language toggle and respond to mid-conversation switches.
+- **Multi-source retrieval (§3.2)** — Bot must answer from **both** cityofdoral.com and **doralpd.com** (Police Dept). Tag every embedded chunk with `domain` / `source_url`. Citations in UI must show which domain answered.
+- **Visual fidelity** — Pixel-close clone of cityofdoral.com. Palette: **navy `#003366`** primary, **gold `#FDB913`** accent. Use real Doral service names, not placeholders.
+- **WCAG 2.1 AA** — full keyboard nav, ARIA live regions for streamed messages, color contrast verified.
+
 ## Surfaces
 
 - `/` — Public homepage. Visual goal: faithful look-alike of cityofdoral.com. Floating chat widget anchored bottom-left.
