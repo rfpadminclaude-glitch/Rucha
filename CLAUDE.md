@@ -55,7 +55,24 @@ This is a **demo-driven POC for an RFP bid** to the City of Doral, FL — not a 
 - Council seats: verify current officials before demo.
 - `supabase/functions/` is excluded from Next.js TS build (Deno runtime).
 
-**Next — Phase 3 (Polished chat widget):** quick-reply chips, streaming responses (Gemini supports `streamGenerateContent`), star rating after N exchanges, framer-motion animations, full keyboard nav + ARIA.
+**Next — Phase 3:** Polished chat widget (see plan below).
+
+## Phase Plan (12 phases, ~3 days each)
+
+Strategy: end-to-end thin slice first, then RAG, then visual polish, then features, then analytics, then channels, then a11y. **Non-negotiable for a credible demo:** Phases 1, 2, 4, 5, 10. **Scoring boosters:** 3, 6, 7, 8, 9, 11. **Always done:** 12.
+
+- **Phase 0 — Foundation** ✅ Next.js + Tailwind + Supabase wired; `hello` Edge Function round-trip verified.
+- **Phase 1 — Thin-slice chat** ✅ `conversations`/`messages` tables; `chat` Edge Function with Groq→Gemini failover; basic widget; persists turns; LLM badge.
+- **Phase 2 — RAG + knowledge base** ✅ `faqs`/`site_content` with FTS (vector path kept as upgrade hook); `match_content` RPC; 40 EN/ES FAQs seeded; chat injects context; citation chips per domain.
+- **Phase 3 — Polished chat widget** ⏳ Quick-reply chips on welcome, streaming responses (Gemini `streamGenerateContent`), typing indicator, smooth framer-motion animations, star rating after 3+ exchanges, file/voice icons (UI only), full keyboard nav + ARIA labels.
+- **Phase 4 — Workflows** Pothole/311 report (location → description → photo → ticket number written to `service_requests`); BTR renewal walkthrough; sentiment-triggered human handoff; mid-conversation language switch verified across flows.
+- **Phase 5 — Document parsing** Paperclip-icon upload in chat → Supabase Storage; Edge Function parses PDFs with `pdf-parse` into `uploaded_documents`; bot answers against the uploaded doc. Ship a sample Doral permit PDF in `/public` for an instant demo.
+- **Phase 6 — Multi-URL cross-site retrieval (§3.2)** Seed ~10 chunks of doralpd.com content (Crime Mapping, Citizens Police Academy, Special Needs Registry) into `site_content`. Verify a question like *"How do I report a break-in and install a security camera?"* cites both domains.
+- **Phase 7 — Scraping pipeline** `sources` table; `scrape` Edge Function (fetch → chunk → embed/index → upsert); pg_cron at 3am ET; manual "Re-scrape now" button; per-URL last-scraped timestamp.
+- **Phase 8 — Admin dashboard** Supabase Auth gate at `/admin`; FAQ CRUD with side-by-side EN/ES editing; announcements CRUD with priority + active toggle; sources list with re-scrape buttons; service requests table with filters; conversation viewer.
+- **Phase 9 — Power BI-style analytics** `/analytics` with Recharts: KPI cards (conversations, satisfaction, resolution, top intent), conversations/day line, intent bar, EN/ES pie, sentiment stacked bar, **LLM provider split** (proves failover), CSV export, "Connect to Power BI" mock button.
+- **Phase 10 — SMS channel demo (§3.2 omnichannel)** `/sms-demo` phone-mockup page. "Continue via SMS" button hands off the same `conversation_id`. Real Twilio if keys present; otherwise simulated.
+- **Phase 11 — Accessibility + demo polish** WCAG 2.1 AA audit (keyboard, screen reader, contrast), `aria-live` for streamed messages, skip-to-content, `/accessibility` page documenting conformance, `?demo=true` URL param (auto-opens chat, demo badge, scripted prompts sidebar), `/demo-script` page, `npm run seed:reset` to restore clean demo state.
 
 ## Conventions
 
