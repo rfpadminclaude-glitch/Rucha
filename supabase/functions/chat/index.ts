@@ -34,11 +34,46 @@ function buildContextBlock(hits: Hit[]): string {
   return `\n\nCONTEXT (relevant excerpts from official Doral sources):\n${lines.join("\n\n")}\n`;
 }
 
-async function callGemini(
+// ---------- Streaming helpers ----------
+
+function sseEvent(event: string, data: unknown): Uint8Array {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  return new TextEncoder().encode(payload);
+}
+
+async function* parseSSE(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      // SSE messages are separated by blank lines (\n\n)
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        // Extract just the data: lines
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("data:")) {
+            yield line.slice(5).trimStart();
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function streamGemini(
   apiKey: string,
   history: Array<{ role: string; content: string }>,
   userMessage: string,
   systemPrompt: string,
+  onDelta: (text: string) => void,
 ): Promise<string> {
   const contents = [
     ...history.map((m) => ({
@@ -48,7 +83,7 @@ async function callGemini(
     { role: "user", parts: [{ text: userMessage }] },
   ];
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -59,21 +94,34 @@ async function callGemini(
       }),
     },
   );
-  if (!res.ok) {
+  if (!res.ok || !res.body) {
     const err = await res.text();
     throw new Error(`Gemini ${res.status}: ${err}`);
   }
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini: empty response");
-  return text;
+  let full = "";
+  for await (const raw of parseSSE(res.body)) {
+    if (!raw) continue;
+    try {
+      const json = JSON.parse(raw);
+      const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) {
+        full += text;
+        onDelta(text);
+      }
+    } catch {
+      // ignore non-JSON keepalives
+    }
+  }
+  if (!full) throw new Error("Gemini: empty stream");
+  return full;
 }
 
-async function callGroq(
+async function streamGroq(
   apiKey: string,
   history: Array<{ role: string; content: string }>,
   userMessage: string,
   systemPrompt: string,
+  onDelta: (text: string) => void,
 ): Promise<string> {
   const messages = [
     { role: "system", content: systemPrompt },
@@ -91,16 +139,29 @@ async function callGroq(
       messages,
       temperature: 0.4,
       max_tokens: 400,
+      stream: true,
     }),
   });
-  if (!res.ok) {
+  if (!res.ok || !res.body) {
     const err = await res.text();
     throw new Error(`Groq ${res.status}: ${err}`);
   }
-  const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content;
-  if (!text) throw new Error("Groq: empty response");
-  return text;
+  let full = "";
+  for await (const raw of parseSSE(res.body)) {
+    if (!raw || raw === "[DONE]") continue;
+    try {
+      const json = JSON.parse(raw);
+      const text = json?.choices?.[0]?.delta?.content;
+      if (text) {
+        full += text;
+        onDelta(text);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!full) throw new Error("Groq: empty stream");
+  return full;
 }
 
 Deno.serve(async (req) => {
@@ -108,134 +169,176 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  try {
-    const { conversationId, message, lang } = await req.json();
-    if (!message || typeof message !== "string") {
-      return new Response(
-        JSON.stringify({ error: "message is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
-
-    let convId = conversationId as string | undefined;
-    if (!convId) {
-      const { data, error } = await supabase
-        .from("conversations")
-        .insert({ user_lang: lang === "es" ? "es" : "en" })
-        .select("id")
-        .single();
-      if (error) throw new Error(`db conversation insert: ${error.message}`);
-      convId = data.id;
-    }
-
-    const { data: priorMessages, error: histErr } = await supabase
-      .from("messages")
-      .select("role, content")
-      .eq("conversation_id", convId)
-      .order("created_at", { ascending: true });
-    if (histErr) throw new Error(`db history: ${histErr.message}`);
-
-    const { error: userInsErr } = await supabase.from("messages").insert({
-      conversation_id: convId,
-      role: "user",
-      content: message,
-    });
-    if (userInsErr) throw new Error(`db user insert: ${userInsErr.message}`);
-
-    // ---- RAG retrieval via match_content RPC (FTS) ----
-    const filterLang = lang === "es" ? "es" : "en";
-    let hits: Hit[] = [];
-    try {
-      const { data: matchData, error: matchErr } = await supabase.rpc(
-        "match_content",
-        { query_text: message, match_count: 5, filter_lang: filterLang },
-      );
-      if (matchErr) throw matchErr;
-      hits = (matchData ?? []) as Hit[];
-
-      // If nothing matched in the user's language, try the other language as a fallback.
-      if (hits.length === 0) {
-        const otherLang = filterLang === "en" ? "es" : "en";
-        const { data: fallback } = await supabase.rpc("match_content", {
-          query_text: message,
-          match_count: 5,
-          filter_lang: otherLang,
-        });
-        hits = (fallback ?? []) as Hit[];
-      }
-    } catch (e) {
-      console.error("retrieval error:", e);
-    }
-
-    const systemPrompt = SYSTEM_PROMPT_BASE + buildContextBlock(hits);
-
-    const groqKey = Deno.env.get("GROQ_API_KEY");
-    const geminiKey = Deno.env.get("GEMINI_API_KEY");
-    if (!geminiKey && !groqKey) {
-      throw new Error("No LLM keys configured (need GEMINI_API_KEY or GROQ_API_KEY)");
-    }
-
-    let reply = "";
-    let provider: Provider | "" = "";
-    let lastErr = "";
-    const tryOrder: Provider[] = groqKey ? ["groq", "gemini"] : ["gemini"];
-    for (const p of tryOrder) {
-      try {
-        if (p === "groq" && groqKey) {
-          reply = await callGroq(groqKey, priorMessages ?? [], message, systemPrompt);
-          provider = "groq";
-          break;
-        }
-        if (p === "gemini" && geminiKey) {
-          reply = await callGemini(geminiKey, priorMessages ?? [], message, systemPrompt);
-          provider = "gemini";
-          break;
-        }
-      } catch (e) {
-        lastErr = e instanceof Error ? e.message : String(e);
-        continue;
-      }
-    }
-    if (!provider) {
-      throw new Error(`All LLM providers failed. Last error: ${lastErr}`);
-    }
-
-    const { error: asstInsErr } = await supabase.from("messages").insert({
-      conversation_id: convId,
-      role: "assistant",
-      content: reply,
-      llm_provider: provider,
-    });
-    if (asstInsErr) throw new Error(`db assistant insert: ${asstInsErr.message}`);
-
-    // De-dup citations by source_url
-    const citations = Array.from(
-      new Map(
-        hits.map((h) => [
-          h.source_url,
-          { title: h.title, domain: h.domain, source_url: h.source_url, similarity: h.similarity },
-        ]),
-      ).values(),
-    );
-
-    return new Response(
-      JSON.stringify({
-        reply,
-        llm: provider,
-        conversationId: convId,
-        citations,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
+  const { conversationId, message, lang } = await req.json().catch(() => ({}));
+  if (!message || typeof message !== "string") {
+    return new Response(JSON.stringify({ error: "message is required" }), {
+      status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: string, data: unknown) => {
+        controller.enqueue(sseEvent(event, data));
+      };
+      try {
+        // ---- conversation bookkeeping ----
+        let convId = conversationId as string | undefined;
+        if (!convId) {
+          const { data, error } = await supabase
+            .from("conversations")
+            .insert({ user_lang: lang === "es" ? "es" : "en" })
+            .select("id")
+            .single();
+          if (error) throw new Error(`db conversation insert: ${error.message}`);
+          convId = data.id;
+        }
+
+        const { data: priorMessages, error: histErr } = await supabase
+          .from("messages")
+          .select("role, content")
+          .eq("conversation_id", convId)
+          .order("created_at", { ascending: true });
+        if (histErr) throw new Error(`db history: ${histErr.message}`);
+
+        const { error: userInsErr } = await supabase.from("messages").insert({
+          conversation_id: convId,
+          role: "user",
+          content: message,
+        });
+        if (userInsErr) throw new Error(`db user insert: ${userInsErr.message}`);
+
+        // ---- RAG ----
+        const filterLang = lang === "es" ? "es" : "en";
+        let hits: Hit[] = [];
+        try {
+          const { data: matchData, error: matchErr } = await supabase.rpc(
+            "match_content",
+            { query_text: message, match_count: 5, filter_lang: filterLang },
+          );
+          if (matchErr) throw matchErr;
+          hits = (matchData ?? []) as Hit[];
+          if (hits.length === 0) {
+            const other = filterLang === "en" ? "es" : "en";
+            const { data: fb } = await supabase.rpc("match_content", {
+              query_text: message,
+              match_count: 5,
+              filter_lang: other,
+            });
+            hits = (fb ?? []) as Hit[];
+          }
+        } catch (e) {
+          console.error("retrieval error:", e);
+        }
+
+        const citations = Array.from(
+          new Map(
+            hits.map((h) => [
+              h.source_url,
+              {
+                title: h.title,
+                domain: h.domain,
+                source_url: h.source_url,
+                similarity: h.similarity,
+              },
+            ]),
+          ).values(),
+        );
+
+        const systemPrompt = SYSTEM_PROMPT_BASE + buildContextBlock(hits);
+
+        // ---- LLM streaming with failover ----
+        const groqKey = Deno.env.get("GROQ_API_KEY");
+        const geminiKey = Deno.env.get("GEMINI_API_KEY");
+        if (!geminiKey && !groqKey) {
+          throw new Error("No LLM keys configured");
+        }
+        const tryOrder: Provider[] = groqKey ? ["groq", "gemini"] : ["gemini"];
+
+        let reply = "";
+        let provider: Provider | "" = "";
+        let lastErr = "";
+        let metaSent = false;
+
+        for (const p of tryOrder) {
+          try {
+            const onDelta = (text: string) => {
+              if (!metaSent) {
+                send("meta", {
+                  conversationId: convId,
+                  llm: p,
+                  citations,
+                });
+                metaSent = true;
+              }
+              send("delta", { text });
+            };
+            if (p === "groq" && groqKey) {
+              reply = await streamGroq(
+                groqKey,
+                priorMessages ?? [],
+                message,
+                systemPrompt,
+                onDelta,
+              );
+              provider = "groq";
+              break;
+            }
+            if (p === "gemini" && geminiKey) {
+              reply = await streamGemini(
+                geminiKey,
+                priorMessages ?? [],
+                message,
+                systemPrompt,
+                onDelta,
+              );
+              provider = "gemini";
+              break;
+            }
+          } catch (e) {
+            lastErr = e instanceof Error ? e.message : String(e);
+            // If meta was already sent for this provider, we can't cleanly retry
+            // (the client has partial text). Bail out and report.
+            if (metaSent) throw new Error(lastErr);
+          }
+        }
+        if (!provider) throw new Error(`All LLM providers failed: ${lastErr}`);
+
+        // Safety net: meta event in case the model produced no deltas (shouldn't happen).
+        if (!metaSent) {
+          send("meta", { conversationId: convId, llm: provider, citations });
+        }
+
+        // Persist assistant message
+        const { error: asstInsErr } = await supabase.from("messages").insert({
+          conversation_id: convId,
+          role: "assistant",
+          content: reply,
+          llm_provider: provider,
+        });
+        if (asstInsErr) console.error("db assistant insert:", asstInsErr.message);
+
+        send("done", {});
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        send("error", { error: msg });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 });

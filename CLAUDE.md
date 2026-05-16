@@ -35,7 +35,7 @@ This is a **demo-driven POC for an RFP bid** to the City of Doral, FL — not a 
 2. **Gemini 2.5 Flash** is the current default and fallback. Note: `gemini-2.0-flash` returned quota=0 on this API key, so we use `gemini-2.5-flash` which has free-tier availability.
 3. Embeddings always use **OpenAI `text-embedding-3`** — do not switch providers mid-corpus without a re-embed plan, since vectors are not cross-compatible.
 
-## Current State (Phase 2 complete)
+## Current State (Phase 3 complete)
 
 **Built (cumulative):**
 - DB tables: `conversations`, `messages` (Phase 1); `faqs`, `site_content` with nullable `embedding vector(1536)` and generated `tsv tsvector` (Phase 2). RLS open to anon for POC.
@@ -46,6 +46,7 @@ This is a **demo-driven POC for an RFP bid** to the City of Doral, FL — not a 
 - `ChatWidget` (bottom-right): EN/ES toggle, LLM provider badge, **citation chips** with a colored dot per domain (gold = cityofdoral.com, red = doralpd.com) that open the source URL in a new tab.
 - Seed pipeline: `scripts/faqs.json` + `scripts/seed-faqs.mjs` (no embeddings — FTS-only). Invoked via `npm run seed:faqs`.
 - Real branding assets in `public/doral/`.
+- **Phase 3 chat polish:** `chat` Edge Function now streams via SSE (Gemini `streamGenerateContent?alt=sse`, with a streaming Groq path ready for when a key is added). Browser consumes the stream via raw `fetch` (no longer `supabase.functions.invoke`, which buffers). ChatWidget has framer-motion panel/message animations, quick-reply chips on the welcome screen, animated 3-dot typing indicator + caret while streaming, ARIA live region on the streaming bubble, full keyboard nav (Esc closes, focus returns to launcher, focus traps to input on open), and disabled paperclip/mic icons reserved for Phase 5 (uploads) and a future voice feature. Star rating prompt appears after 3 completed assistant turns and POSTs to a new `rate` Edge Function which writes `rating` / `rating_comment` / `rated_at` to `conversations`.
 
 **Why FTS instead of pgvector now:** the user's OpenAI key is `insufficient_quota`, so we can't generate embeddings. FTS is sufficient for the demo's small corpus. Vector columns are kept nullable so we can re-embed and switch to vector search in one migration when OpenAI billing is enabled (or by swapping to Gemini embeddings).
 
@@ -55,7 +56,7 @@ This is a **demo-driven POC for an RFP bid** to the City of Doral, FL — not a 
 - Council seats: verify current officials before demo.
 - `supabase/functions/` is excluded from Next.js TS build (Deno runtime).
 
-**Next — Phase 3:** Polished chat widget (see plan below).
+**Next — Phase 4:** Workflows (pothole/311 report, BTR renewal walkthrough, sentiment-triggered handoff, mid-conversation language switch verification).
 
 ## Phase Plan (12 phases, ~3 days each)
 
@@ -64,7 +65,7 @@ Strategy: end-to-end thin slice first, then RAG, then visual polish, then featur
 - **Phase 0 — Foundation** ✅ Next.js + Tailwind + Supabase wired; `hello` Edge Function round-trip verified.
 - **Phase 1 — Thin-slice chat** ✅ `conversations`/`messages` tables; `chat` Edge Function with Groq→Gemini failover; basic widget; persists turns; LLM badge.
 - **Phase 2 — RAG + knowledge base** ✅ `faqs`/`site_content` with FTS (vector path kept as upgrade hook); `match_content` RPC; 40 EN/ES FAQs seeded; chat injects context; citation chips per domain.
-- **Phase 3 — Polished chat widget** ⏳ Quick-reply chips on welcome, streaming responses (Gemini `streamGenerateContent`), typing indicator, smooth framer-motion animations, star rating after 3+ exchanges, file/voice icons (UI only), full keyboard nav + ARIA labels.
+- **Phase 3 — Polished chat widget** ✅ Quick-reply chips on welcome, SSE streaming (Gemini `streamGenerateContent?alt=sse`), animated typing indicator + caret, framer-motion panel/message animations, star rating after 3 completed exchanges (writes to `conversations.rating`), disabled file/voice icons, Esc-to-close + focus return + ARIA live region.
 - **Phase 4 — Workflows** Pothole/311 report (location → description → photo → ticket number written to `service_requests`); BTR renewal walkthrough; sentiment-triggered human handoff; mid-conversation language switch verified across flows.
 - **Phase 5 — Document parsing** Paperclip-icon upload in chat → Supabase Storage; Edge Function parses PDFs with `pdf-parse` into `uploaded_documents`; bot answers against the uploaded doc. Ship a sample Doral permit PDF in `/public` for an instant demo.
 - **Phase 6 — Multi-URL cross-site retrieval (§3.2)** Seed ~10 chunks of doralpd.com content (Crime Mapping, Citizens Police Academy, Special Needs Registry) into `site_content`. Verify a question like *"How do I report a break-in and install a security camera?"* cites both domains.
