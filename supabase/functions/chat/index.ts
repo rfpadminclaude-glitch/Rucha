@@ -20,10 +20,10 @@ If the user wants to report a neighborhood issue (pothole, streetlight out, graf
   1. Location (cross streets or address inside Doral)
   2. Description (what's wrong, severity)
   3. Photo — ask them to use the paperclip icon to attach a photo, or reply "skip"/"omitir"
-Treat an attached photo (the user message will contain "[Attached photo: <url>]") as the photo step being complete.
+Treat the marker "[Attached photo]" appearing in a user message as the photo step being complete (the system handles the actual photo — you only need to know one was attached).
 Once you have all three, write a short confirmation sentence in the user's language, then on its OWN FINAL LINE emit this exact marker (no surrounding text):
-[[ACTION:{"type":"create_ticket","request_type":"<pothole|streetlight|graffiti|tree|sidewalk|trash|noise|other>","location":"<text>","description":"<text>","photo_url":"<url or null>"}]]
-The system will create the ticket and append the ticket number — do NOT invent a ticket number yourself. Do NOT emit the marker until you have all three fields.
+[[ACTION:{"type":"create_ticket","request_type":"<pothole|streetlight|graffiti|tree|sidewalk|trash|noise|other>","location":"<text>","description":"<text>","photo_attached":<true or false>}]]
+The system will create the ticket, attach the photo if one was uploaded, and append the ticket number — do NOT invent a ticket number yourself, do NOT include the photo URL in the marker. Do NOT emit the marker until you have at least location + description (photo is optional — set photo_attached to false if the user replied "skip").
 
 ## Workflow: BTR renewal walkthrough
 If the user wants to renew a Business Tax Receipt, walk them through these 4 steps ONE AT A TIME (ask "ready for the next step?" between each, in their language):
@@ -53,6 +53,8 @@ type ActionPayload = {
   request_type: string;
   location?: string;
   description?: string;
+  photo_attached?: boolean;
+  // legacy field kept for backward-compat with older prompt versions
   photo_url?: string | null;
 };
 
@@ -77,16 +79,19 @@ async function* parseUpstreamSSE(
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // Match both LF (\n\n) and CRLF (\r\n\r\n) event boundaries. Gemini uses CRLF.
+  const sep = /\r?\n\r?\n/;
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf("\n\n")) !== -1) {
-        const chunk = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        for (const line of chunk.split("\n")) {
+      let m: RegExpExecArray | null;
+      while ((m = sep.exec(buffer))) {
+        const chunk = buffer.slice(0, m.index);
+        buffer = buffer.slice(m.index + m[0].length);
+        for (const rawLine of chunk.split(/\r?\n/)) {
+          const line = rawLine.replace(/\r$/, "");
           if (line.startsWith("data:")) yield line.slice(5).trimStart();
         }
       }
@@ -299,13 +304,14 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  // Photos are sent as a tag the LLM can recognize and pass through to the
-  // action sentinel.
-  const userMessageForLLM =
-    photoUrl && typeof photoUrl === "string"
-      ? `${message}\n\n[Attached photo: ${photoUrl}]`
-      : message;
-  // We persist the LLM-visible version so retries see the same context.
+  // The LLM only needs to know that a photo was attached — never the URL.
+  // We always show it a short marker; the server fills the real photo_url
+  // into service_requests when an ACTION sentinel fires. This keeps base64
+  // data URLs out of the prompt (which would otherwise blow up Gemini's
+  // context and reliably trigger an "I can't process images" deflection).
+  const hasPhoto = photoUrl && typeof photoUrl === "string";
+  const photoTag = hasPhoto ? "[Attached photo]" : "";
+  const userMessageForLLM = hasPhoto ? `${message}\n\n${photoTag}` : message;
   const userMessageForDB = userMessageForLLM;
 
   const stream = new ReadableStream<Uint8Array>({
@@ -455,6 +461,12 @@ Deno.serve(async (req) => {
               { req_type: action.request_type },
             );
             if (tnErr || !tn) throw new Error(tnErr?.message ?? "no ticket #");
+            // Server fills in the real photo URL from the current turn —
+            // the LLM never sees a URL, only the "[Attached photo]" marker.
+            const ticketPhotoUrl =
+              (hasPhoto ? photoUrl : null) ??
+              action.photo_url ??
+              null;
             const { data: ticket, error: insErr } = await supabase
               .from("service_requests")
               .insert({
@@ -463,7 +475,7 @@ Deno.serve(async (req) => {
                 request_type: action.request_type,
                 location: action.location ?? null,
                 description: action.description ?? null,
-                photo_url: action.photo_url ?? null,
+                photo_url: ticketPhotoUrl,
               })
               .select()
               .single();

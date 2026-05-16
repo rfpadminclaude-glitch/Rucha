@@ -7,8 +7,17 @@ alter table public.conversations
   add column if not exists rated_at timestamptz;
 
 -- Allow anon to update their conversation's rating fields.
-create policy "anon can rate conversations"
-  on public.conversations for update
-  to anon
-  using (true)
-  with check (true);
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'conversations'
+      and policyname = 'anon can rate conversations'
+  ) then
+    create policy "anon can rate conversations"
+      on public.conversations for update
+      to anon
+      using (true)
+      with check (true);
+  end if;
+end $$;

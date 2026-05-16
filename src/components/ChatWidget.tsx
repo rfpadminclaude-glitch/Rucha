@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { supabase } from "@/lib/supabase";
 
 type Citation = {
   title: string;
@@ -30,7 +29,6 @@ type Message = {
   photoUrl?: string;
 };
 
-const PHOTO_BUCKET = "service-request-photos";
 const MAX_PHOTO_MB = 5;
 
 const COPY = {
@@ -227,14 +225,16 @@ export default function ChatWidget() {
     }
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from(PHOTO_BUCKET)
-        .upload(path, file, { contentType: file.type, upsert: false });
-      if (upErr) throw upErr;
-      const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
-      setStagedPhoto({ url: data.publicUrl, name: file.name });
+      // Read the file as a base64 data URL so we don't need a Storage bucket.
+      // The data URL flows through the chat function for the current turn and
+      // (if the migration is applied) into service_requests.photo_url.
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+        reader.readAsDataURL(file);
+      });
+      setStagedPhoto({ url: dataUrl, name: file.name });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
