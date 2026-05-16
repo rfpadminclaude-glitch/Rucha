@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
+import LiveRefresh from "../LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,9 @@ export default async function ServiceRequestsPage({
         <p className="text-sm text-gray-600 mt-1">
           311 tickets submitted via the chat assistant.
         </p>
+        <div className="mt-2">
+          <LiveRefresh tables={["service_requests"]} />
+        </div>
       </div>
 
       <form className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-4">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
 import DashboardCharts from "./DashboardCharts";
+import LiveRefresh from "./LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -176,6 +177,9 @@ export default async function OverviewPage() {
           <p className="text-sm text-gray-600 mt-1">
             Live data from the City of Doral assistant.
           </p>
+          <div className="mt-2">
+            <LiveRefresh />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <PowerBiButton />

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
+import LiveRefresh from "../LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,9 @@ export default async function ConversationsListPage() {
         <p className="text-sm text-gray-600 mt-1">
           Most recent 100 chat sessions.
         </p>
+        <div className="mt-2">
+          <LiveRefresh tables={["conversations", "messages"]} />
+        </div>
       </div>
       <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
         <table className="w-full text-sm">
