@@ -38,6 +38,27 @@ export default function Header() {
                 {l.label}
               </Link>
             ))}
+            <span className="h-3 w-px bg-white/30" aria-hidden="true" />
+            <Link
+              href="/admin/login"
+              className="inline-flex items-center gap-1 hover:text-doral-gold transition"
+              title="City staff sign in"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3 w-3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Admin
+            </Link>
           </div>
         </div>
       </div>
