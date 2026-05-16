@@ -54,6 +54,7 @@ async function main() {
     for (const lang of ["en", "es"]) {
       rows.push({
         lang,
+        topic_key: f.id,
         question: f[lang].question,
         answer: f[lang].answer,
         category: f.category,
