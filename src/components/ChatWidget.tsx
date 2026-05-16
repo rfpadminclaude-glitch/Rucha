@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { supabase } from "@/lib/supabase";
 
 type Citation = {
   title: string;
@@ -10,13 +11,27 @@ type Citation = {
   similarity: number;
 };
 
+type Ticket = {
+  ticket_number: string;
+  request_type: string;
+  location: string | null;
+  description: string | null;
+  photo_url: string | null;
+};
+
 type Message = {
   role: "user" | "assistant";
   content: string;
   llm?: "gemini" | "groq";
   citations?: Citation[];
   streaming?: boolean;
+  ticket?: Ticket;
+  handoff?: boolean;
+  photoUrl?: string;
 };
+
+const PHOTO_BUCKET = "service-request-photos";
+const MAX_PHOTO_MB = 5;
 
 const COPY = {
   en: {
@@ -28,8 +43,8 @@ const COPY = {
     thinking: "Thinking",
     suggestionsLabel: "Try one of these",
     suggestions: [
-      "How do I apply for a BTR?",
       "Report a pothole",
+      "Renew my BTR",
       "What are the park hours?",
       "Hurricane preparation tips",
       "Non-emergency police number",
@@ -37,10 +52,21 @@ const COPY = {
     ratingPrompt: "How was this chat?",
     ratingThanks: "Thanks for the feedback!",
     ratingDismiss: "Not now",
-    fileLabel: "Attach a file (coming soon)",
+    fileLabel: "Attach a photo",
     voiceLabel: "Voice input (coming soon)",
     close: "Close chat",
     open: "Open chat",
+    photoStaged: "Photo attached",
+    photoRemove: "Remove photo",
+    uploading: "Uploading…",
+    photoTooBig: `Photo must be under ${MAX_PHOTO_MB} MB`,
+    photoWrongType: "Please pick an image (JPG/PNG)",
+    ticketTitle: "Service request submitted",
+    ticketLocation: "Location",
+    ticketDescription: "Description",
+    handoffTitle: "Want to talk to a person?",
+    handoffBody: "Call 311 or (305) 593-6700, or email contact@cityofdoral.com.",
+    handoffCall: "Call 311",
   },
   es: {
     welcome:
@@ -51,8 +77,8 @@ const COPY = {
     thinking: "Pensando",
     suggestionsLabel: "Prueba una de estas",
     suggestions: [
-      "¿Cómo solicito un BTR?",
       "Reportar un bache",
+      "Renovar mi BTR",
       "¿Cuál es el horario de los parques?",
       "Consejos de huracanes",
       "Policía sin emergencia",
@@ -60,12 +86,36 @@ const COPY = {
     ratingPrompt: "¿Cómo estuvo este chat?",
     ratingThanks: "¡Gracias por tus comentarios!",
     ratingDismiss: "Ahora no",
-    fileLabel: "Adjuntar archivo (próximamente)",
+    fileLabel: "Adjuntar foto",
     voiceLabel: "Entrada de voz (próximamente)",
     close: "Cerrar chat",
     open: "Abrir chat",
+    photoStaged: "Foto adjunta",
+    photoRemove: "Quitar foto",
+    uploading: "Subiendo…",
+    photoTooBig: `La foto debe ser menor de ${MAX_PHOTO_MB} MB`,
+    photoWrongType: "Por favor elige una imagen (JPG/PNG)",
+    ticketTitle: "Solicitud enviada",
+    ticketLocation: "Ubicación",
+    ticketDescription: "Descripción",
+    handoffTitle: "¿Quieres hablar con una persona?",
+    handoffBody: "Llama al 311 o (305) 593-6700, o escribe a contact@cityofdoral.com.",
+    handoffCall: "Llamar 311",
   },
 } as const;
+
+type CopyT = (typeof COPY)[keyof typeof COPY];
+
+const REQUEST_TYPE_LABEL: Record<string, { en: string; es: string }> = {
+  pothole: { en: "Pothole", es: "Bache" },
+  streetlight: { en: "Streetlight", es: "Alumbrado" },
+  graffiti: { en: "Graffiti", es: "Grafiti" },
+  tree: { en: "Tree", es: "Árbol" },
+  sidewalk: { en: "Sidewalk", es: "Acera" },
+  trash: { en: "Trash pickup", es: "Recolección de basura" },
+  noise: { en: "Noise complaint", es: "Ruido" },
+  other: { en: "Other", es: "Otro" },
+};
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -112,10 +162,15 @@ export default function ChatWidget() {
   const [ratingState, setRatingState] = useState<
     "hidden" | "prompt" | "submitted" | "dismissed"
   >("hidden");
+  const [stagedPhoto, setStagedPhoto] = useState<
+    { url: string; name: string } | null
+  >(null);
+  const [uploading, setUploading] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const t = COPY[lang];
@@ -125,30 +180,22 @@ export default function ChatWidget() {
     [messages],
   );
 
-  // Show rating prompt once user has had 3+ completed assistant turns
   useEffect(() => {
-    if (
-      ratingState === "hidden" &&
-      assistantTurns >= 3 &&
-      conversationId
-    ) {
+    if (ratingState === "hidden" && assistantTurns >= 3 && conversationId) {
       setRatingState("prompt");
     }
   }, [assistantTurns, conversationId, ratingState]);
 
-  // Auto-scroll on new content
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, sending]);
+  }, [messages, sending, stagedPhoto]);
 
-  // Focus management when opening / closing
   useEffect(() => {
     if (open) {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
-      // Defer to next tick so the panel is mounted
       setTimeout(() => inputRef.current?.focus(), 0);
     } else if (previousFocusRef.current) {
       previousFocusRef.current.focus?.();
@@ -156,7 +203,6 @@ export default function ChatWidget() {
     }
   }, [open]);
 
-  // Esc closes the panel
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -169,15 +215,56 @@ export default function ChatWidget() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  async function uploadPhoto(file: File) {
+    setError("");
+    if (!file.type.startsWith("image/")) {
+      setError(t.photoWrongType);
+      return;
+    }
+    if (file.size > MAX_PHOTO_MB * 1024 * 1024) {
+      setError(t.photoTooBig);
+      return;
+    }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from(PHOTO_BUCKET)
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
+      setStagedPhoto({ url: data.publicUrl, name: file.name });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (f) void uploadPhoto(f);
+  }
+
   async function send(textOverride?: string) {
     const text = (textOverride ?? input).trim();
-    if (!text || sending) return;
+    // Allow sending if there's at least text OR a photo
+    if ((!text && !stagedPhoto) || sending) return;
+    const photo = stagedPhoto;
     setInput("");
+    setStagedPhoto(null);
     setError("");
-    setMessages((m) => [...m, { role: "user", content: text }]);
+    setMessages((m) => [
+      ...m,
+      {
+        role: "user",
+        content: text || (lang === "es" ? "(foto adjunta)" : "(photo attached)"),
+        photoUrl: photo?.url,
+      },
+    ]);
     setSending(true);
-
-    // Placeholder assistant message we mutate as deltas arrive
     setMessages((m) => [
       ...m,
       { role: "assistant", content: "", streaming: true },
@@ -191,16 +278,18 @@ export default function ChatWidget() {
           apikey: SUPABASE_ANON,
           Authorization: `Bearer ${SUPABASE_ANON}`,
         },
-        body: JSON.stringify({ message: text, lang, conversationId }),
+        body: JSON.stringify({
+          message: text || (lang === "es" ? "Foto adjunta" : "Photo attached"),
+          lang,
+          conversationId,
+          photoUrl: photo?.url ?? null,
+        }),
       });
       if (!res.ok || !res.body) {
         const errTxt = await res.text();
         throw new Error(errTxt || `HTTP ${res.status}`);
       }
 
-      // Back-compat: if the edge function hasn't been redeployed to the
-      // streaming version yet, it returns JSON. Render it as a one-shot reply
-      // so we never leave the user staring at typing dots.
       const ct = res.headers.get("content-type") ?? "";
       if (!ct.includes("text/event-stream")) {
         const data = await res.json();
@@ -257,6 +346,25 @@ export default function ChatWidget() {
             }
             return next;
           });
+        } else if (evt.event === "action") {
+          const { ticket } = JSON.parse(evt.data) as { ticket: Ticket };
+          setMessages((m) => {
+            const next = [...m];
+            const last = next[next.length - 1];
+            if (last?.streaming) {
+              next[next.length - 1] = { ...last, ticket };
+            }
+            return next;
+          });
+        } else if (evt.event === "handoff") {
+          setMessages((m) => {
+            const next = [...m];
+            const last = next[next.length - 1];
+            if (last?.streaming) {
+              next[next.length - 1] = { ...last, handoff: true };
+            }
+            return next;
+          });
         } else if (evt.event === "error") {
           const { error: e } = JSON.parse(evt.data) as { error: string };
           throw new Error(e);
@@ -279,7 +387,6 @@ export default function ChatWidget() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      // Remove the empty streaming placeholder if the request failed before any text
       setMessages((m) => {
         const last = m[m.length - 1];
         if (last?.streaming && !last.content) return m.slice(0, -1);
@@ -307,13 +414,12 @@ export default function ChatWidget() {
       });
       setRatingState("submitted");
     } catch {
-      // Silent fail — keep prompt open so user can retry
+      // silent
     }
   }
 
   return (
     <>
-      {/* Floating launcher */}
       <button
         ref={launcherRef}
         onClick={() => setOpen((o) => !o)}
@@ -340,7 +446,6 @@ export default function ChatWidget() {
             transition={{ duration: 0.2, ease: "easeOut" }}
             className="fixed bottom-24 right-6 z-50 w-[380px] max-w-[calc(100vw-3rem)] h-[600px] max-h-[calc(100vh-8rem)] rounded-lg shadow-2xl bg-white border border-doral-navy/20 flex flex-col overflow-hidden"
           >
-            {/* Header */}
             <div className="bg-doral-navy text-white p-4 flex items-center justify-between">
               <div>
                 <div className="font-semibold">City of Doral Assistant</div>
@@ -368,7 +473,6 @@ export default function ChatWidget() {
               </div>
             </div>
 
-            {/* Messages */}
             <div
               ref={scrollRef}
               className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50"
@@ -377,7 +481,6 @@ export default function ChatWidget() {
                 {t.welcome}
               </div>
 
-              {/* Quick replies (only before any messages) */}
               {messages.length === 0 && (
                 <div className="space-y-2">
                   <div className="text-[11px] uppercase tracking-wide text-gray-500 font-semibold">
@@ -405,7 +508,11 @@ export default function ChatWidget() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.18, ease: "easeOut" }}
-                    className={m.role === "user" ? "flex justify-end" : ""}
+                    className={
+                      m.role === "user"
+                        ? "flex justify-end"
+                        : "flex flex-col items-start gap-2"
+                    }
                   >
                     <div
                       className={
@@ -422,6 +529,14 @@ export default function ChatWidget() {
                         m.role === "assistant" && m.streaming ? false : undefined
                       }
                     >
+                      {m.role === "user" && m.photoUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={m.photoUrl}
+                          alt=""
+                          className="mb-2 max-h-32 rounded border border-white/20"
+                        />
+                      )}
                       <div className="whitespace-pre-wrap">
                         {m.content || (m.streaming && (
                           <TypingDots label={t.thinking} />
@@ -461,6 +576,13 @@ export default function ChatWidget() {
                         </div>
                       )}
                     </div>
+
+                    {m.role === "assistant" && m.ticket && (
+                      <TicketCard ticket={m.ticket} lang={lang} t={t} />
+                    )}
+                    {m.role === "assistant" && m.handoff && (
+                      <HandoffCard t={t} />
+                    )}
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -475,7 +597,6 @@ export default function ChatWidget() {
               )}
             </div>
 
-            {/* Rating prompt */}
             <AnimatePresence>
               {ratingState === "prompt" && (
                 <motion.div
@@ -510,14 +631,50 @@ export default function ChatWidget() {
               )}
             </AnimatePresence>
 
-            {/* Input */}
+            {/* Staged photo preview */}
+            {(stagedPhoto || uploading) && (
+              <div className="border-t bg-gray-50 px-3 py-2 flex items-center gap-2 text-xs">
+                {uploading && (
+                  <span className="text-gray-500 italic">{t.uploading}</span>
+                )}
+                {stagedPhoto && (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={stagedPhoto.url}
+                      alt=""
+                      className="h-10 w-10 object-cover rounded border border-gray-300"
+                    />
+                    <span className="text-doral-navy truncate flex-1">
+                      {t.photoStaged}: {stagedPhoto.name}
+                    </span>
+                    <button
+                      onClick={() => setStagedPhoto(null)}
+                      aria-label={t.photoRemove}
+                      className="text-gray-500 hover:text-doral-navy focus:outline-none focus:ring-2 focus:ring-doral-gold rounded p-1"
+                    >
+                      ×
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="border-t bg-white p-3 flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={onPickFile}
+              />
               <button
                 type="button"
-                disabled
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending || uploading}
                 aria-label={t.fileLabel}
                 title={t.fileLabel}
-                className="p-2 text-gray-400 disabled:cursor-not-allowed"
+                className="p-2 text-doral-navy hover:bg-doral-navy/10 rounded disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-doral-gold"
               >
                 <PaperclipIcon />
               </button>
@@ -548,7 +705,7 @@ export default function ChatWidget() {
               </button>
               <button
                 onClick={() => send()}
-                disabled={sending || !input.trim()}
+                disabled={sending || (!input.trim() && !stagedPhoto)}
                 className="px-4 py-2 rounded bg-doral-navy text-white text-sm font-semibold disabled:opacity-50 border-b-2 border-doral-gold focus:outline-none focus:ring-2 focus:ring-doral-gold"
               >
                 {t.send}
@@ -558,6 +715,81 @@ export default function ChatWidget() {
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+function TicketCard({
+  ticket,
+  lang,
+  t,
+}: {
+  ticket: Ticket;
+  lang: "en" | "es";
+  t: CopyT;
+}) {
+  const typeLabel =
+    REQUEST_TYPE_LABEL[ticket.request_type]?.[lang] ?? ticket.request_type;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="max-w-[85%] rounded-lg border-2 border-green-600/30 bg-green-50 p-3 text-xs text-gray-800"
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-green-700">✅</span>
+        <span className="font-semibold text-green-800">{t.ticketTitle}</span>
+      </div>
+      <div className="font-mono text-sm font-bold text-doral-navy mb-2">
+        {ticket.ticket_number}
+      </div>
+      <div className="text-[11px] text-gray-600 space-y-0.5">
+        <div>
+          <span className="font-semibold">{typeLabel}</span>
+        </div>
+        {ticket.location && (
+          <div>
+            <span className="text-gray-500">{t.ticketLocation}:</span>{" "}
+            {ticket.location}
+          </div>
+        )}
+        {ticket.description && (
+          <div>
+            <span className="text-gray-500">{t.ticketDescription}:</span>{" "}
+            {ticket.description}
+          </div>
+        )}
+        {ticket.photo_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={ticket.photo_url}
+            alt=""
+            className="mt-2 max-h-24 rounded border border-gray-300"
+          />
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function HandoffCard({ t }: { t: CopyT }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="max-w-[85%] rounded-lg border-2 border-amber-500/40 bg-amber-50 p-3 text-xs text-gray-800"
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span>👤</span>
+        <span className="font-semibold text-amber-900">{t.handoffTitle}</span>
+      </div>
+      <div className="text-[11px] text-gray-700 mb-2">{t.handoffBody}</div>
+      <a
+        href="tel:311"
+        className="inline-block text-[11px] px-3 py-1 rounded bg-doral-navy text-white font-semibold hover:bg-doral-navy/90"
+      >
+        {t.handoffCall}
+      </a>
+    </motion.div>
   );
 }
 

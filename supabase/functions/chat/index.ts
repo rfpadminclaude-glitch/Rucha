@@ -10,10 +10,33 @@ const corsHeaders = {
 
 const SYSTEM_PROMPT_BASE = `You are the official AI assistant for the City of Doral, Florida.
 You help residents with city services: permits, Business Tax Receipts (BTR), parks, events, 311 reports, hurricane preparedness, code enforcement, and Doral Police Department services.
-Reply in the language of the user's most recent message (English or Spanish).
+Reply in the language of the user's most recent message (English or Spanish). If the user switches language mid-conversation, switch with them on the next turn — even inside a multi-step workflow.
 Be concise (2–4 sentences), warm, and accurate.
 When the CONTEXT below contains relevant info, base your answer on it and cite the source domain inline.
-If neither the context nor general knowledge has the answer, say so and suggest calling 311 or visiting cityofdoral.com.`;
+If neither the context nor general knowledge has the answer, say so and suggest calling 311 or visiting cityofdoral.com.
+
+## Workflow: 311 / service request intake
+If the user wants to report a neighborhood issue (pothole, streetlight out, graffiti, dead tree, broken sidewalk, missed trash pickup, noise complaint, etc.), collect the following one question at a time, in the user's language:
+  1. Location (cross streets or address inside Doral)
+  2. Description (what's wrong, severity)
+  3. Photo — ask them to use the paperclip icon to attach a photo, or reply "skip"/"omitir"
+Treat an attached photo (the user message will contain "[Attached photo: <url>]") as the photo step being complete.
+Once you have all three, write a short confirmation sentence in the user's language, then on its OWN FINAL LINE emit this exact marker (no surrounding text):
+[[ACTION:{"type":"create_ticket","request_type":"<pothole|streetlight|graffiti|tree|sidewalk|trash|noise|other>","location":"<text>","description":"<text>","photo_url":"<url or null>"}]]
+The system will create the ticket and append the ticket number — do NOT invent a ticket number yourself. Do NOT emit the marker until you have all three fields.
+
+## Workflow: BTR renewal walkthrough
+If the user wants to renew a Business Tax Receipt, walk them through these 4 steps ONE AT A TIME (ask "ready for the next step?" between each, in their language):
+  1. Gather your BTR account number, business address, and current contact info.
+  2. Visit cityofdoral.com/BTR or call (305) 593-6700 ext. 5005.
+  3. Confirm or update any changed business details. Renewals run April 1 – September 30; after Sept 30 a late penalty applies.
+  4. Pay the renewal fee online by credit card, or mail a check payable to the City of Doral to 8401 NW 53rd Terrace, Doral, FL 33166.
+Do NOT dump all four steps at once. Mention the link / phone naturally when relevant.
+
+## Sentiment handoff
+If the user expresses clear frustration, anger, or repeatedly says the bot isn't helping (e.g. "this is useless", "I want a real person", "you're not understanding"), append this exact marker on its OWN FINAL LINE (in addition to your normal helpful reply):
+[[HANDOFF]]
+The marker is invisible to the user; the UI uses it to surface a "talk to a human" card.`;
 
 type Provider = "gemini" | "groq";
 type Hit = {
@@ -25,6 +48,14 @@ type Hit = {
   source_url: string;
 };
 
+type ActionPayload = {
+  type: "create_ticket";
+  request_type: string;
+  location?: string;
+  description?: string;
+  photo_url?: string | null;
+};
+
 function buildContextBlock(hits: Hit[]): string {
   if (!hits.length) return "";
   const lines = hits.map(
@@ -34,14 +65,15 @@ function buildContextBlock(hits: Hit[]): string {
   return `\n\nCONTEXT (relevant excerpts from official Doral sources):\n${lines.join("\n\n")}\n`;
 }
 
-// ---------- Streaming helpers ----------
-
 function sseEvent(event: string, data: unknown): Uint8Array {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  return new TextEncoder().encode(payload);
+  return new TextEncoder().encode(
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+  );
 }
 
-async function* parseSSE(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+async function* parseUpstreamSSE(
+  stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -51,15 +83,11 @@ async function* parseSSE(stream: ReadableStream<Uint8Array>): AsyncGenerator<str
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       let idx: number;
-      // SSE messages are separated by blank lines (\n\n)
       while ((idx = buffer.indexOf("\n\n")) !== -1) {
         const chunk = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 2);
-        // Extract just the data: lines
         for (const line of chunk.split("\n")) {
-          if (line.startsWith("data:")) {
-            yield line.slice(5).trimStart();
-          }
+          if (line.startsWith("data:")) yield line.slice(5).trimStart();
         }
       }
     }
@@ -90,7 +118,7 @@ async function streamGemini(
       body: JSON.stringify({
         contents,
         systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { temperature: 0.4, maxOutputTokens: 400 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 500 },
       }),
     },
   );
@@ -99,7 +127,7 @@ async function streamGemini(
     throw new Error(`Gemini ${res.status}: ${err}`);
   }
   let full = "";
-  for await (const raw of parseSSE(res.body)) {
+  for await (const raw of parseUpstreamSSE(res.body)) {
     if (!raw) continue;
     try {
       const json = JSON.parse(raw);
@@ -109,7 +137,7 @@ async function streamGemini(
         onDelta(text);
       }
     } catch {
-      // ignore non-JSON keepalives
+      // ignore
     }
   }
   if (!full) throw new Error("Gemini: empty stream");
@@ -138,7 +166,7 @@ async function streamGroq(
       model: "llama-3.3-70b-versatile",
       messages,
       temperature: 0.4,
-      max_tokens: 400,
+      max_tokens: 500,
       stream: true,
     }),
   });
@@ -147,7 +175,7 @@ async function streamGroq(
     throw new Error(`Groq ${res.status}: ${err}`);
   }
   let full = "";
-  for await (const raw of parseSSE(res.body)) {
+  for await (const raw of parseUpstreamSSE(res.body)) {
     if (!raw || raw === "[DONE]") continue;
     try {
       const json = JSON.parse(raw);
@@ -164,12 +192,102 @@ async function streamGroq(
   return full;
 }
 
+// ---------- Sentinel-aware streaming buffer ----------
+// Holds back text near a possible `[[` so we never leak partial sentinels to
+// the browser, while still streaming everything else as it arrives.
+class SentinelFilter {
+  buffer = "";
+  // Detected sentinels, in order
+  actions: ActionPayload[] = [];
+  handoff = false;
+
+  // Returns text safe to flush to the client (with any complete sentinels stripped).
+  push(chunk: string): string {
+    this.buffer += chunk;
+    let out = "";
+    while (true) {
+      const openIdx = this.buffer.indexOf("[[");
+      if (openIdx === -1) {
+        // No `[[` at all. Keep the last 1 char in case `[` is split across chunks.
+        if (this.buffer.length > 1) {
+          out += this.buffer.slice(0, -1);
+          this.buffer = this.buffer.slice(-1);
+        }
+        break;
+      }
+      // Flush everything before the `[[`
+      if (openIdx > 0) {
+        out += this.buffer.slice(0, openIdx);
+        this.buffer = this.buffer.slice(openIdx);
+      }
+      // Now buffer starts with `[[`. Look for closing `]]`.
+      const closeIdx = this.buffer.indexOf("]]");
+      if (closeIdx === -1) {
+        // Incomplete sentinel, keep buffering.
+        break;
+      }
+      const sentinel = this.buffer.slice(0, closeIdx + 2);
+      this.buffer = this.buffer.slice(closeIdx + 2);
+      this.consumeSentinel(sentinel);
+    }
+    return out;
+  }
+
+  // Call after the upstream stream is fully done. Returns any remaining safe text.
+  flush(): string {
+    let out = "";
+    // Handle any trailing [[…]] one more time
+    while (true) {
+      const openIdx = this.buffer.indexOf("[[");
+      if (openIdx === -1) {
+        out += this.buffer;
+        this.buffer = "";
+        break;
+      }
+      if (openIdx > 0) {
+        out += this.buffer.slice(0, openIdx);
+        this.buffer = this.buffer.slice(openIdx);
+      }
+      const closeIdx = this.buffer.indexOf("]]");
+      if (closeIdx === -1) {
+        // Malformed/truncated sentinel; drop it
+        this.buffer = "";
+        break;
+      }
+      const sentinel = this.buffer.slice(0, closeIdx + 2);
+      this.buffer = this.buffer.slice(closeIdx + 2);
+      this.consumeSentinel(sentinel);
+    }
+    return out;
+  }
+
+  private consumeSentinel(sentinel: string) {
+    if (sentinel === "[[HANDOFF]]") {
+      this.handoff = true;
+      return;
+    }
+    if (sentinel.startsWith("[[ACTION:") && sentinel.endsWith("]]")) {
+      const json = sentinel.slice(9, -2);
+      try {
+        const payload = JSON.parse(json) as ActionPayload;
+        if (payload?.type === "create_ticket" && payload.request_type) {
+          this.actions.push(payload);
+        }
+      } catch (e) {
+        console.error("invalid ACTION sentinel:", json, e);
+      }
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const { conversationId, message, lang } = await req.json().catch(() => ({}));
+  const { conversationId, message, lang, photoUrl } = await req
+    .json()
+    .catch(() => ({}));
   if (!message || typeof message !== "string") {
     return new Response(JSON.stringify({ error: "message is required" }), {
       status: 400,
@@ -180,6 +298,15 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceKey);
+
+  // Photos are sent as a tag the LLM can recognize and pass through to the
+  // action sentinel.
+  const userMessageForLLM =
+    photoUrl && typeof photoUrl === "string"
+      ? `${message}\n\n[Attached photo: ${photoUrl}]`
+      : message;
+  // We persist the LLM-visible version so retries see the same context.
+  const userMessageForDB = userMessageForLLM;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -209,7 +336,7 @@ Deno.serve(async (req) => {
         const { error: userInsErr } = await supabase.from("messages").insert({
           conversation_id: convId,
           role: "user",
-          content: message,
+          content: userMessageForDB,
         });
         if (userInsErr) throw new Error(`db user insert: ${userInsErr.message}`);
 
@@ -252,7 +379,7 @@ Deno.serve(async (req) => {
 
         const systemPrompt = SYSTEM_PROMPT_BASE + buildContextBlock(hits);
 
-        // ---- LLM streaming with failover ----
+        // ---- LLM streaming with failover + sentinel filtering ----
         const groqKey = Deno.env.get("GROQ_API_KEY");
         const geminiKey = Deno.env.get("GEMINI_API_KEY");
         if (!geminiKey && !groqKey) {
@@ -260,29 +387,30 @@ Deno.serve(async (req) => {
         }
         const tryOrder: Provider[] = groqKey ? ["groq", "gemini"] : ["gemini"];
 
-        let reply = "";
         let provider: Provider | "" = "";
         let lastErr = "";
         let metaSent = false;
+        const filter = new SentinelFilter();
+        let visibleReply = "";
 
         for (const p of tryOrder) {
           try {
             const onDelta = (text: string) => {
               if (!metaSent) {
-                send("meta", {
-                  conversationId: convId,
-                  llm: p,
-                  citations,
-                });
+                send("meta", { conversationId: convId, llm: p, citations });
                 metaSent = true;
               }
-              send("delta", { text });
+              const safe = filter.push(text);
+              if (safe) {
+                visibleReply += safe;
+                send("delta", { text: safe });
+              }
             };
             if (p === "groq" && groqKey) {
-              reply = await streamGroq(
+              await streamGroq(
                 groqKey,
                 priorMessages ?? [],
-                message,
+                userMessageForLLM,
                 systemPrompt,
                 onDelta,
               );
@@ -290,10 +418,10 @@ Deno.serve(async (req) => {
               break;
             }
             if (p === "gemini" && geminiKey) {
-              reply = await streamGemini(
+              await streamGemini(
                 geminiKey,
                 priorMessages ?? [],
-                message,
+                userMessageForLLM,
                 systemPrompt,
                 onDelta,
               );
@@ -302,26 +430,74 @@ Deno.serve(async (req) => {
             }
           } catch (e) {
             lastErr = e instanceof Error ? e.message : String(e);
-            // If meta was already sent for this provider, we can't cleanly retry
-            // (the client has partial text). Bail out and report.
             if (metaSent) throw new Error(lastErr);
           }
         }
         if (!provider) throw new Error(`All LLM providers failed: ${lastErr}`);
 
-        // Safety net: meta event in case the model produced no deltas (shouldn't happen).
+        // Flush any tail text the filter was still holding
+        const tail = filter.flush();
+        if (tail) {
+          visibleReply += tail;
+          send("delta", { text: tail });
+        }
+
         if (!metaSent) {
           send("meta", { conversationId: convId, llm: provider, citations });
         }
 
-        // Persist assistant message
-        const { error: asstInsErr } = await supabase.from("messages").insert({
+        // ---- Process detected sentinels ----
+        for (const action of filter.actions) {
+          if (action.type !== "create_ticket") continue;
+          try {
+            const { data: tn, error: tnErr } = await supabase.rpc(
+              "generate_ticket_number",
+              { req_type: action.request_type },
+            );
+            if (tnErr || !tn) throw new Error(tnErr?.message ?? "no ticket #");
+            const { data: ticket, error: insErr } = await supabase
+              .from("service_requests")
+              .insert({
+                ticket_number: tn,
+                conversation_id: convId,
+                request_type: action.request_type,
+                location: action.location ?? null,
+                description: action.description ?? null,
+                photo_url: action.photo_url ?? null,
+              })
+              .select()
+              .single();
+            if (insErr) throw new Error(insErr.message);
+
+            const confirmation =
+              lang === "es"
+                ? `\n\n✅ **Ticket ${ticket.ticket_number}** creado. Te avisaremos cuando haya actualizaciones.`
+                : `\n\n✅ **Ticket ${ticket.ticket_number}** created. We'll keep you posted on updates.`;
+            visibleReply += confirmation;
+            send("action", { ticket });
+            send("delta", { text: confirmation });
+          } catch (e) {
+            console.error("ticket creation failed:", e);
+            const errLine =
+              lang === "es"
+                ? `\n\n⚠️ No pudimos crear el ticket en este momento. Por favor llama al 311.`
+                : `\n\n⚠️ We couldn't create the ticket right now. Please call 311.`;
+            visibleReply += errLine;
+            send("delta", { text: errLine });
+          }
+        }
+
+        if (filter.handoff) {
+          send("handoff", {});
+        }
+
+        // Persist what the user actually saw (cleaned of sentinels, suffixes included)
+        await supabase.from("messages").insert({
           conversation_id: convId,
           role: "assistant",
-          content: reply,
+          content: visibleReply,
           llm_provider: provider,
         });
-        if (asstInsErr) console.error("db assistant insert:", asstInsErr.message);
 
         send("done", {});
       } catch (e) {
